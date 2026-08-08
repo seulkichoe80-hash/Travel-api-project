@@ -1,0 +1,49 @@
+{
+  "recommendation": {
+    "recommended_cities": [
+      "서울",
+      "부산",
+      "제주도"
+    ],
+    "city_details": [
+      {
+        "city": "서울",
+        "weather": "가을 날씨로 선선하고 맑을 것으로 예상됩니다.",
+        "events": [
+          "서울세계불꽃놀이축제",
+          "서울가을축제"
+        ],
+        "reason": "역사와 현대가 공존하는 서울은 다양한 문화 체험과 즐길거리가 풍부합니다."
+      },
+      {
+        "city": "부산",
+        "weather": "가을 날씨로 기온이 온화하고 바람이 시원할 것으로 예상됩니다.",
+        "events": [
+          "부산국제영화제",
+          "부산가을축제"
+        ],
+        "reason": "부산의 아름다운 해변과 맛있는 해산물을 즐기며 여유로운 시간을 보낼 수 있습니다."
+      },
+      {
+        "city": "제주도",
+        "weather": "가을 날씨로 시원하고 맑을 것으로 예상됩니다.",
+        "events": [
+          "제주도감귤축제",
+          "제주가을펜션페어"
+        ],
+        "reason": "자연 경관이 아름다운 제주도에서 힐링과 여유를 만끽할 수 있습니다."
+      }
+    ]
+  },
+  "restaurants": {
+    "서울": [],
+    "부산": [],
+    "제주도": []
+  },
+  "errors": [
+    "Kakao 맛집 검색 실패 (서울): 401 Client Error: Unauthorized for url: https://dapi.kakao.com/v2/local/search/keyword.json?query=%EC%84%9C%EC%9A%B8+%EB%A7%9B%EC%A7%91&size=5&sort=accuracy",
+    "Kakao 맛집 검색 실패 (부산): 401 Client Error: Unauthorized for url: https://dapi.kakao.com/v2/local/search/keyword.json?query=%EB%B6%80%EC%82%B0+%EB%A7%9B%EC%A7%91&size=5&sort=accuracy",
+    "Kakao 맛집 검색 실패 (제주도): 401 Client Error: Unauthorized for url: https://dapi.kakao.com/v2/local/search/keyword.json?query=%EC%A0%9C%EC%A3%BC%EB%8F%84+%EB%A7%9B%EC%A7%91&size=5&sort=accuracy",
+    "OpenAI 최종 리포트 생성 실패: 필수 Markdown 항목이 누락되었습니다."
+  ]
+}
