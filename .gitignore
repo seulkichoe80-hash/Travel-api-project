@@ -1,0 +1,6 @@
+.env
+**pycache**/
+results/
+.venv/
+*.py[cod]
+/2-2 mission/
