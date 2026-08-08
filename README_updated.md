@@ -116,10 +116,10 @@ LLM 추천 정보와 Kakao Local API의 맛집 정보를 결합하여 추천 지
 
 Kakao API 인증 실패 상황을 테스트한 결과입니다. 맛집 검색이 실패해도 프로그램 전체가 중단되지 않고 최종 JSON 및 Markdown 파일까지 생성됩니다.
 
-![API 실패 후 프로그램 완료](images/06_API_error.PNG)
+![API 실패 후 프로그램 완료](images/06_ApiEerror.PNG)
 
 최종 리포트에서는 맛집을 `검색 결과 없음`으로 처리하고, `errors` 항목에 Kakao API의 `401 Unauthorized` 오류 내용을 기록합니다. 이를 통해 장소 검색 API 실패 시에도 가능한 정보로 최종 리포트를 생성하는 예외처리를 확인할 수 있습니다.
 
-![API 실패 오류 기록](images/06-1_API_error.PNG)
+![API 실패 오류 기록](images/06-1_ApiEerror.PNG)
 
 > **참고:** 위 API 오류 화면은 예외처리 기능을 확인하기 위한 테스트 결과이며, 정상 실행 결과에서는 `errors`가 비어 있습니다.
