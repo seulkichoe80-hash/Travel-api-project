@@ -6,12 +6,21 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from openai import OpenAI
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
+KAKAO_LOCAL_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
+CITY_ALIASES = {
+    "서울특별시": "서울", "부산광역시": "부산", "대구광역시": "대구",
+    "인천광역시": "인천", "광주광역시": "광주", "대전광역시": "대전",
+    "울산광역시": "울산", "세종특별자치시": "세종", "제주특별자치도": "제주도",
+    "경기도": "경기", "강원특별자치도": "강원", "충청북도": "충북",
+    "충청남도": "충남", "전북특별자치도": "전북", "전라남도": "전남",
+    "경상북도": "경북", "경상남도": "경남",
+}
 RECOMMENDATION_SCHEMA = {
     "name": "travel_recommendation",
     "strict": True,
@@ -80,6 +89,65 @@ def check_api_keys() -> tuple[str, str]:
     return openai_key, kakao_key
 
 
+def normalize_city_name(city: str) -> str:
+    """긴 행정구역명이나 세부 지역명을 검색하기 좋은 대표 지역명으로 바꾼다."""
+    if not isinstance(city, str) or not city.strip():
+        raise ValueError(f"도시 이름은 비어 있지 않은 문자열이어야 합니다: {city!r}")
+    cleaned = " ".join(city.strip().split())
+    if cleaned in CITY_ALIASES:
+        return CITY_ALIASES[cleaned]
+    for official_name, short_name in CITY_ALIASES.items():
+        if cleaned.startswith(official_name + " "):
+            return short_name
+    return cleaned
+
+
+def validate_recommendation(recommendation: dict[str, Any]) -> dict[str, Any]:
+    """추천 JSON의 필수 키, 자료형, 도시 개수와 상세정보 일치를 검사한다."""
+    required = {"recommended_cities", "city_details"}
+    missing = required - recommendation.keys()
+    if missing:
+        raise ValueError(f"추천 JSON 필수 키 누락: {', '.join(sorted(missing))}")
+    cities = recommendation["recommended_cities"]
+    details = recommendation["city_details"]
+    if not isinstance(cities, list) or not isinstance(details, list):
+        raise ValueError("recommended_cities와 city_details는 리스트여야 합니다.")
+    if not 2 <= len(cities) <= 3:
+        raise ValueError(f"추천 도시 개수는 2~3개여야 합니다. 현재: {len(cities)}개")
+
+    normalized_cities = [normalize_city_name(city) for city in cities]
+    normalized_details = []
+    for index, detail in enumerate(details):
+        detail_required = {"city", "weather", "events", "reason"}
+        if not isinstance(detail, dict):
+            raise ValueError(f"city_details[{index}]는 객체여야 합니다.")
+        detail_missing = detail_required - detail.keys()
+        if detail_missing:
+            raise ValueError(
+                f"city_details[{index}] 필수 키 누락: {', '.join(sorted(detail_missing))}"
+            )
+        if not isinstance(detail["weather"], str) or not isinstance(detail["reason"], str):
+            raise ValueError(f"city_details[{index}]의 weather와 reason은 문자열이어야 합니다.")
+        if not isinstance(detail["events"], list) or not all(
+            isinstance(event, str) for event in detail["events"]
+        ):
+            raise ValueError(f"city_details[{index}].events는 문자열 리스트여야 합니다.")
+        normalized_detail = dict(detail)
+        normalized_detail["city"] = normalize_city_name(detail["city"])
+        normalized_details.append(normalized_detail)
+
+    detail_cities = [item["city"] for item in normalized_details]
+    if normalized_cities != detail_cities:
+        raise ValueError(
+            f"도시와 상세정보 순서 불일치: cities={normalized_cities}, details={detail_cities}"
+        )
+    if len(set(normalized_cities)) != len(normalized_cities):
+        raise ValueError(f"중복 추천 도시가 있습니다: {normalized_cities}")
+    recommendation["recommended_cities"] = normalized_cities
+    recommendation["city_details"] = normalized_details
+    return recommendation
+
+
 def request_recommendation(client: "OpenAI", travel_date: str, errors: list[str]) -> dict[str, Any] | None:
     """여행 추천 JSON을 요청하고 파싱 실패 시 한 번만 다시 요청한다."""
     prompt = (
@@ -90,10 +158,19 @@ def request_recommendation(client: "OpenAI", travel_date: str, errors: list[str]
     )
     for attempt in range(2):
         try:
+            retry_instruction = ""
+            if attempt == 1:
+                retry_instruction = (
+                    " 이전 응답은 검증에 실패했습니다. JSON 이외의 문장은 쓰지 말고, "
+                    "필수 키·자료형·도시 순서를 스키마와 정확히 일치시키세요."
+                )
             response = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                 messages=[
-                    {"role": "system", "content": "당신은 국내 여행 플래너입니다. 지정된 JSON 형식만 반환하세요."},
+                    {"role": "system", "content": (
+                        "당신은 국내 여행 플래너입니다. 지정된 JSON 형식만 반환하세요."
+                        + retry_instruction
+                    )},
                     {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_schema", "json_schema": RECOMMENDATION_SCHEMA},
@@ -102,12 +179,7 @@ def request_recommendation(client: "OpenAI", travel_date: str, errors: list[str]
             content = response.choices[0].message.content
             if not content:
                 raise ValueError("LLM 응답 내용이 비어 있습니다.")
-            recommendation = json.loads(content)
-            cities = recommendation["recommended_cities"]
-            detail_cities = [item["city"] for item in recommendation["city_details"]]
-            if not 2 <= len(cities) <= 3 or cities != detail_cities or len(set(cities)) != len(cities):
-                raise ValueError("추천 도시 2~3개와 도시 상세정보가 서로 일치하지 않습니다.")
-            return recommendation
+            return validate_recommendation(json.loads(content))
         except (json.JSONDecodeError, ValueError, TypeError, KeyError, IndexError) as exc:
             errors.append(f"여행 추천 JSON 파싱 실패 ({attempt + 1}/2): {exc}")
             if attempt == 0:
@@ -118,14 +190,14 @@ def request_recommendation(client: "OpenAI", travel_date: str, errors: list[str]
     return None
 
 
-def search_restaurants(city: str, kakao_key: str, errors: list[str]) -> list[dict[str, str]]:
+def search_kakao_restaurants(city: str, api_key: str, errors: list[str]) -> list[dict[str, str]]:
     """Kakao Local API에서 추천 도시의 맛집 다섯 곳을 검색한다."""
     import requests
 
     try:
         response = requests.get(
-            "https://dapi.kakao.com/v2/local/search/keyword.json",
-            headers={"Authorization": f"KakaoAK {kakao_key}"},
+            KAKAO_LOCAL_URL,
+            headers={"Authorization": f"KakaoAK {api_key}"},
             params={"query": f"{city} 맛집", "size": 5, "sort": "accuracy"},
             timeout=10,
         )
@@ -145,6 +217,25 @@ def search_restaurants(city: str, kakao_key: str, errors: list[str]) -> list[dic
     except (requests.RequestException, ValueError, KeyError) as exc:
         errors.append(f"Kakao 맛집 검색 실패 ({city}): {exc}")
         return []
+
+
+RestaurantProvider = Callable[[str, str, list[str]], list[dict[str, str]]]
+RESTAURANT_PROVIDERS: dict[str, RestaurantProvider] = {
+    "kakao": search_kakao_restaurants,
+}
+
+
+def search_restaurants(city: str, api_key: str, errors: list[str]) -> list[dict[str, str]]:
+    """환경변수로 선택한 맛집 검색 제공자를 호출한다."""
+    provider_name = os.getenv("MAP_PROVIDER", "kakao").lower()
+    provider = RESTAURANT_PROVIDERS.get(provider_name)
+    if provider is None:
+        errors.append(
+            f"지원하지 않는 지도 제공자입니다: {provider_name}. "
+            f"사용 가능: {', '.join(RESTAURANT_PROVIDERS)}"
+        )
+        return []
+    return provider(city, api_key, errors)
 
 
 def fallback_report(travel_date: str, recommendation: dict[str, Any] | None,
